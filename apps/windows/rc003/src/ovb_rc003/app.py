@@ -143,6 +143,10 @@ _BUTTON_ACTION_MOUSE_BUTTONS = {
 # Keep the first-repeat delay shared, but make ordinary D-pad movement quicker.
 _DIRECTION_BUTTON_REPEAT_INTERVAL_SECONDS = 0.065
 
+# Sustained pointer movement fires at 66.7 Hz: the settings label shows
+# step_pixels * 66.7 px/s, so one step every 15 ms keeps that promise.
+_MOUSE_MOVE_TICK_SECONDS = 0.015
+
 # Semantic tap mappings only. RC003 physical-edge correlation is separate.
 _BUTTON_ACTION_NAVIGATION_VKS = {
     key_mapping.ActionKind.ARROW_UP: 0x26,
@@ -246,10 +250,10 @@ class RC003App:
             repeat_interval_for=self._button_repeat_interval,
             on_idle=self._apply_pending_settings_if_idle,
             on_diagnostic=self._on_button_gesture_diagnostic,
-            is_sustained=self._is_mouse_hold_button,
+            is_sustained=self._is_sustained_button,
             on_hold_start=lambda button, token: self._on_button_trigger(
                 button, button_gesture.ButtonTrigger.LONG_PRESS, hold_owner=token),
-            on_hold_end=self._end_button_mouse_hold,
+            on_hold_end=self._end_button_sustained_hold,
         )
         self._button_combos = button_combo.ButtonComboRecognizer()
         self._logger: logging.Logger = logging_setup.get_logger(self._config_root)
@@ -363,6 +367,8 @@ class RC003App:
         self._button_key_release_pending: Optional[Tuple[str, ...]] = None
         self._button_mouse_release_pending: Optional[str] = None
         self._button_mouse_holds: Dict[str, set[object]] = {}
+        self._button_move_holds: Dict[object, threading.Event] = {}
+        self._selection_drag_owner: Optional[object] = None
         self._button_hold_release_pending: set[str] = set()
         self._button_input_release_retry_timer: Optional[object] = None
         self._button_input_release_retry_token: Optional[object] = None
@@ -573,6 +579,7 @@ class RC003App:
             self._accept_input_events = False
             self._button_combos.reset()
             self._button_gestures.reset()
+            self._cancel_selection_drag()
 
     def _resume_chromecast_input(self):
         with self._input_arbitration_lock:
@@ -1732,6 +1739,7 @@ class RC003App:
             self._block_input_until_release(buttons)
         self._button_combos.reset()
         self._button_gestures.reset()
+        self._cancel_selection_drag()
         self._key_detection_suppressed_buttons.clear()
         self._key_detection_suppression_deadlines.clear()
 
@@ -2851,6 +2859,7 @@ class RC003App:
         # whose original down was deliberately allowed through during fallback.
         self._button_combos.reset()
         self._button_gestures.reset()
+        self._cancel_selection_drag()
         with self._input_arbitration_lock:
             self._cancel_all_raw_fallback_hold_guards_locked()
             tracked_logical_buttons, _tracked_physical_buttons = (
@@ -2962,6 +2971,7 @@ class RC003App:
             self._reset_key_detection_mic_gesture_locked()
         self._button_combos.reset()
         self._button_gestures.reset()
+        self._cancel_selection_drag()
 
         physicalizer_state = "stopped"
         if keyboard_release_complete and doubao_attempt_settled:
@@ -4555,10 +4565,13 @@ class RC003App:
         )
         self._apply_button_action(action)
 
-    def _is_mouse_hold_button(self, button_id: str) -> bool:
-        return key_mapping.button_action_for(
+    def _is_sustained_button(self, button_id: str) -> bool:
+        """Long-press actions that own input until the physical release."""
+
+        kind = key_mapping.button_action_for(
             self._bindings, button_id, key_mapping.ButtonTrigger.LONG_PRESS
-        ).kind in key_mapping.MOUSE_HOLD_BUTTONS
+        ).kind
+        return kind in key_mapping.MOUSE_HOLD_BUTTONS or kind in key_mapping.MOUSE_MOVE_KINDS
 
     def _begin_button_mouse_hold(self, owner: object, action: key_mapping.ButtonAction) -> None:
         button = key_mapping.MOUSE_HOLD_BUTTONS[action.kind]
@@ -4580,14 +4593,101 @@ class RC003App:
             else:
                 self._button_mouse_holds[button] = {owner}
 
-    def _end_button_mouse_hold(self, owner: object) -> None:
+    def _begin_button_mouse_move(
+        self, owner: object, action: key_mapping.ButtonAction
+    ) -> None:
+        vector = key_mapping.MOUSE_MOVE_VECTORS.get(action.kind)
+        if vector is None:
+            return
         with self._button_action_lock:
+            if not self._accept_input_events or not self._release_pending_button_inputs():
+                return
+            if owner in self._button_move_holds:
+                return
+            stop = threading.Event()
+            thread = threading.Thread(
+                target=self._run_button_mouse_move,
+                args=(stop, vector),
+                name="rc003-mouse-move-hold",
+                daemon=True,
+            )
+            self._button_move_holds[owner] = stop
+            try:
+                thread.start()
+            except BaseException:  # noqa: BLE001 - input callbacks fail closed
+                self._button_move_holds.pop(owner, None)
+                self._logger.exception("mouse move hold thread failed to start")
+
+    def _run_button_mouse_move(self, stop: threading.Event, vector: Tuple[int, int]) -> None:
+        dx_sign, dy_sign = vector
+        while not stop.wait(_MOUSE_MOVE_TICK_SECONDS):
+            if not self._accept_input_events:
+                break
+            step = config.clamp_mouse_move_step_pixels(
+                self._config.get(
+                    "mouse_move_step_pixels",
+                    config.MOUSE_MOVE_STEP_PIXELS_DEFAULT,
+                )
+            )
+            try:
+                win32_input.send_mouse_move(dx_sign * step, dy_sign * step)
+            except win32_input.Win32InputUnavailableError:
+                break
+            except OSError:
+                # A blocked desktop must not spin a failing 66 Hz loop.
+                self._logger.info("mouse move hold interrupted", exc_info=True)
+                break
+
+    def _end_button_sustained_hold(self, owner: object) -> None:
+        with self._button_action_lock:
+            stop = self._button_move_holds.pop(owner, None)
+            if stop is not None:
+                stop.set()
             for button, owners in list(self._button_mouse_holds.items()):
                 owners.discard(owner)
                 if not owners:
                     del self._button_mouse_holds[button]
                     self._button_hold_release_pending.add(button)
             self._release_pending_button_inputs()
+
+    def _toggle_selection_drag(self) -> bool:
+        """First press holds the left button, the second press copies.
+
+        Reuses the mouse-hold ownership/release machinery so a missed release
+        stays retryable and never leaves the left button logically down.
+        Returns False when the hold could not be established.
+        """
+
+        with self._button_action_lock:
+            owner = self._selection_drag_owner
+            if owner is not None:
+                self._selection_drag_owner = None
+                self._end_button_sustained_hold(owner)
+                self._logger.info("mouse drag select: left button released, copying")
+                win32_input.send_key_combo_tap(("ctrl", "c"))
+                return True
+            owner = object()
+            self._begin_button_mouse_hold(
+                owner,
+                key_mapping.ButtonAction(key_mapping.ActionKind.MOUSE_LEFT_HOLD),
+            )
+            if owner not in self._button_mouse_holds.get("left", set()):
+                self._logger.info(
+                    "mouse drag select: left button hold was not established"
+                )
+                return False
+            self._selection_drag_owner = owner
+            self._logger.info("mouse drag select: holding left button")
+            return True
+
+    def _cancel_selection_drag(self) -> None:
+        with self._button_action_lock:
+            owner = self._selection_drag_owner
+            if owner is None:
+                return
+            self._selection_drag_owner = None
+            self._end_button_sustained_hold(owner)
+            self._logger.info("mouse drag select: cancelled")
 
     def _release_pending_mouse_holds_locked(self) -> bool:
         for button in tuple(self._button_hold_release_pending):
@@ -4743,6 +4843,13 @@ class RC003App:
         if action.kind in key_mapping.MOUSE_HOLD_BUTTONS:
             if hold_owner is not None:
                 self._begin_button_mouse_hold(hold_owner, action)
+        elif action.kind in key_mapping.MOUSE_MOVE_KINDS:
+            if hold_owner is not None:
+                self._begin_button_mouse_move(hold_owner, action)
+            else:
+                # A long-press binding reached without a hold token (for
+                # example a hand-edited secondary map) still moves one step.
+                self._apply_button_action(action)
         else:
             self._apply_button_action(action)
 
@@ -4809,6 +4916,22 @@ class RC003App:
                 win32_input.send_volume_mute()
             elif action.kind == key_mapping.ActionKind.PLAY_PAUSE:
                 win32_input.send_play_pause()
+            elif action.kind == key_mapping.ActionKind.MOUSE_SCROLL_UP:
+                win32_input.send_mouse_wheel(1)
+            elif action.kind == key_mapping.ActionKind.MOUSE_SCROLL_DOWN:
+                win32_input.send_mouse_wheel(-1)
+            elif action.kind == key_mapping.ActionKind.MOUSE_DRAG_SELECT:
+                if not self._toggle_selection_drag():
+                    action_error = "mouse_drag_unavailable"
+            elif action.kind in key_mapping.MOUSE_MOVE_VECTORS:
+                dx, dy = key_mapping.MOUSE_MOVE_VECTORS[action.kind]
+                tap_step = config.clamp_mouse_tap_move_step_pixels(
+                    self._config.get(
+                        "mouse_move_tap_step_pixels",
+                        config.MOUSE_TAP_MOVE_STEP_PIXELS_DEFAULT,
+                    )
+                )
+                win32_input.send_mouse_move(dx * tap_step, dy * tap_step)
             elif action.kind in _BUTTON_ACTION_MOUSE_BUTTONS:
                 if _BUTTON_ACTION_MOUSE_BUTTONS[action.kind] in self._button_mouse_holds:
                     return
@@ -4900,6 +5023,8 @@ class RC003App:
             return tuple(action.keys)
         if action.kind == key_mapping.ActionKind.TEXT:
             return ("ctrl", "v")
+        if action.kind == key_mapping.ActionKind.MOUSE_DRAG_SELECT:
+            return ("ctrl", "c")
         return _BUTTON_ACTION_KEY_TOKENS.get(action.kind)
 
     def _cancel_button_input_release_retry_locked(

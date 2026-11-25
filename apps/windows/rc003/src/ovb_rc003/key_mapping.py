@@ -68,6 +68,18 @@ class ActionKind(str, Enum):
     MOUSE_RIGHT_HOLD = "mouse_right_hold"
     MOUSE_X1_HOLD = "mouse_x1_hold"
     MOUSE_X2_HOLD = "mouse_x2_hold"
+    # Selectable pointer actions from the local dual-slider build: one tap
+    # moves one "tap distance" step, a configured long-press keeps moving
+    # while the key is held, and scroll triggers one detent per invocation.
+    MOUSE_MOVE_UP = "mouse_move_up"
+    MOUSE_MOVE_DOWN = "mouse_move_down"
+    MOUSE_MOVE_LEFT = "mouse_move_left"
+    MOUSE_MOVE_RIGHT = "mouse_move_right"
+    MOUSE_SCROLL_UP = "mouse_scroll_up"
+    MOUSE_SCROLL_DOWN = "mouse_scroll_down"
+    # Drag-select helper for single-key remotes: the first press holds the
+    # left button, the second press releases it and copies (Ctrl+C).
+    MOUSE_DRAG_SELECT = "mouse_drag_select"
     ELEMENT_NAVIGATION_TOGGLE = "element_navigation_toggle"
     # ``VOICE`` and ``VOICE_TOGGLE`` remain parseable only so schema-1 files
     # can be failed closed with an explicit migration notice. They are not
@@ -95,6 +107,22 @@ MOUSE_HOLD_BUTTONS = {
     ActionKind.MOUSE_X1_HOLD: "x1",
     ActionKind.MOUSE_X2_HOLD: "x2",
 }
+
+# Unit direction vectors for the one-tap pointer actions. The executor scales
+# them by the configured tap distance; the sustained hold loop scales them by
+# the configured move-speed step.
+MOUSE_MOVE_VECTORS = {
+    ActionKind.MOUSE_MOVE_UP: (0, -1),
+    ActionKind.MOUSE_MOVE_DOWN: (0, 1),
+    ActionKind.MOUSE_MOVE_LEFT: (-1, 0),
+    ActionKind.MOUSE_MOVE_RIGHT: (1, 0),
+}
+
+MOUSE_MOVE_KINDS = frozenset(MOUSE_MOVE_VECTORS)
+
+MOUSE_SCROLL_KINDS = frozenset(
+    {ActionKind.MOUSE_SCROLL_UP, ActionKind.MOUSE_SCROLL_DOWN}
+)
 
 
 class ButtonTrigger(str, Enum):
@@ -232,6 +260,10 @@ REPEATABLE_ACTIONS = frozenset(
         ActionKind.DELETE_BACKWARD,
         ActionKind.SYSTEM_VOLUME_UP,
         ActionKind.SYSTEM_VOLUME_DOWN,
+        # A primary scroll mapping keeps scrolling while a repeatable button
+        # is held (D-pad, back, volume), matching the 1.0.44 wheel behavior.
+        ActionKind.MOUSE_SCROLL_UP,
+        ActionKind.MOUSE_SCROLL_DOWN,
     }
 )
 

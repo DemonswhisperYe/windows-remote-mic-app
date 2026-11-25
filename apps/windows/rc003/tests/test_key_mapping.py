@@ -75,6 +75,8 @@ class ButtonActionSerializationTests(unittest.TestCase):
             key_mapping.ActionKind.DELETE_BACKWARD,
             key_mapping.ActionKind.SYSTEM_VOLUME_UP,
             key_mapping.ActionKind.SYSTEM_VOLUME_DOWN,
+            key_mapping.ActionKind.MOUSE_SCROLL_UP,
+            key_mapping.ActionKind.MOUSE_SCROLL_DOWN,
         }
         for action_kind in key_mapping.ActionKind:
             action = (
@@ -268,6 +270,72 @@ class GestureBindingLookupTests(unittest.TestCase):
             key_mapping.button_combo_action_for(configured, "up").kind,
             key_mapping.ActionKind.QUICKER_URI,
         )
+
+
+
+
+class PointerActionTests(unittest.TestCase):
+    def test_mouse_move_and_scroll_actions_round_trip_without_keys(self):
+        for kind in (
+            key_mapping.ActionKind.MOUSE_MOVE_UP,
+            key_mapping.ActionKind.MOUSE_MOVE_DOWN,
+            key_mapping.ActionKind.MOUSE_MOVE_LEFT,
+            key_mapping.ActionKind.MOUSE_MOVE_RIGHT,
+            key_mapping.ActionKind.MOUSE_SCROLL_UP,
+            key_mapping.ActionKind.MOUSE_SCROLL_DOWN,
+            key_mapping.ActionKind.MOUSE_DRAG_SELECT,
+        ):
+            with self.subTest(kind=kind):
+                action = key_mapping.ButtonAction(kind)
+                data = action.to_dict()
+                self.assertEqual(data, {"kind": kind.value, "keys": []})
+                self.assertEqual(key_mapping.ButtonAction.from_dict(data), action)
+
+    def test_every_mouse_move_kind_has_a_unit_vector(self):
+        self.assertEqual(
+            set(key_mapping.MOUSE_MOVE_VECTORS),
+            set(key_mapping.MOUSE_MOVE_KINDS),
+        )
+        self.assertEqual(
+            key_mapping.MOUSE_MOVE_VECTORS[key_mapping.ActionKind.MOUSE_MOVE_UP],
+            (0, -1),
+        )
+        self.assertEqual(
+            key_mapping.MOUSE_MOVE_VECTORS[key_mapping.ActionKind.MOUSE_MOVE_DOWN],
+            (0, 1),
+        )
+        self.assertEqual(
+            key_mapping.MOUSE_MOVE_VECTORS[key_mapping.ActionKind.MOUSE_MOVE_LEFT],
+            (-1, 0),
+        )
+        self.assertEqual(
+            key_mapping.MOUSE_MOVE_VECTORS[key_mapping.ActionKind.MOUSE_MOVE_RIGHT],
+            (1, 0),
+        )
+
+    def test_only_scroll_pointer_actions_are_hold_repeatable(self):
+        for kind in key_mapping.MOUSE_SCROLL_KINDS:
+            with self.subTest(kind=kind):
+                self.assertTrue(
+                    key_mapping.action_allows_repeat(key_mapping.ButtonAction(kind))
+                )
+        for kind in key_mapping.MOUSE_MOVE_KINDS:
+            with self.subTest(kind=kind):
+                self.assertFalse(
+                    key_mapping.action_allows_repeat(key_mapping.ButtonAction(kind))
+                )
+
+    def test_legacy_wheel_bindings_still_migrate_to_page_keys(self):
+        for kind, page_key in (
+            (key_mapping.ActionKind.MOUSE_WHEEL_UP, "pageup"),
+            (key_mapping.ActionKind.MOUSE_WHEEL_DOWN, "pagedown"),
+        ):
+            with self.subTest(kind=kind):
+                action = key_mapping.ButtonAction(kind)
+                self.assertEqual(
+                    action.to_dict(),
+                    {"kind": "key_combo", "keys": [page_key]},
+                )
 
 
 if __name__ == "__main__":

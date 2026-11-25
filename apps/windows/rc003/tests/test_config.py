@@ -1192,5 +1192,39 @@ class EditableMicBindingTests(unittest.TestCase):
         )
 
 
+
+
+class MousePointerSettingsTests(unittest.TestCase):
+    def test_defaults_match_the_dual_slider_build(self):
+        defaults = config.default_config()
+        self.assertEqual(defaults["mouse_move_step_pixels"], 8)
+        self.assertEqual(defaults["mouse_move_tap_step_pixels"], 8)
+
+    def test_load_clamps_out_of_range_and_invalid_values(self):
+        cases = (
+            ({"mouse_move_step_pixels": 99, "mouse_move_tap_step_pixels": 0}, (24, 1)),
+            ({"mouse_move_step_pixels": 2, "mouse_move_tap_step_pixels": 99}, (3, 24)),
+            ({"mouse_move_step_pixels": True, "mouse_move_tap_step_pixels": "x"}, (8, 8)),
+        )
+        for payload, expected in cases:
+            with self.subTest(payload=payload), tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "config.json"
+                path.write_text(json.dumps(payload), encoding="utf-8")
+                loaded = config.load_config(path)
+                self.assertEqual(loaded["mouse_move_step_pixels"], expected[0])
+                self.assertEqual(loaded["mouse_move_tap_step_pixels"], expected[1])
+
+    def test_saved_values_round_trip_through_save_and_load(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.json"
+            document = config.default_config()
+            document["mouse_move_step_pixels"] = 15
+            document["mouse_move_tap_step_pixels"] = 3
+            config.save_config(path, document)
+            loaded = config.load_config(path)
+        self.assertEqual(loaded["mouse_move_step_pixels"], 15)
+        self.assertEqual(loaded["mouse_move_tap_step_pixels"], 3)
+
+
 if __name__ == "__main__":
     unittest.main()

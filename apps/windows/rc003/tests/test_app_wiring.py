@@ -3741,6 +3741,8 @@ class OrdinaryButtonGestureWiringTests(_AppWiringTestCase):
             "send_delete_backward", "send_show_desktop", "send_context_menu",
             "send_app_switcher", "send_volume_up", "send_volume_down",
             "send_volume_mute", "send_play_pause", "send_mouse_button_click", "paste_text",
+            "send_mouse_move", "send_mouse_wheel", "send_mouse_button_down",
+            "send_mouse_button_up",
         )
         with ExitStack() as stack:
             effects = [stack.enter_context(mock.patch.object(win32_input, name)) for name in senders]
@@ -3778,6 +3780,11 @@ class OrdinaryButtonGestureWiringTests(_AppWiringTestCase):
                     before = sum(effect.call_count for effect in effects)
                     self.app._apply_button_action(action)
                     self.assertEqual(sum(effect.call_count for effect in effects), before + 1)
+                    # Latching options keep state across presses; reset them so
+                    # later options (for example plain left click) still run.
+                    self.app._selection_drag_owner = None
+                    self.app._button_mouse_holds.clear()
+                    self.app._button_hold_release_pending.clear()
 
     def test_physical_mouse_hold_skips_click_without_recording_cleanup_debt(self):
         with mock.patch.object(
@@ -3790,6 +3797,57 @@ class OrdinaryButtonGestureWiringTests(_AppWiringTestCase):
             )
 
         self.assertIsNone(self.app._button_mouse_release_pending)
+
+    def test_mouse_drag_select_holds_left_then_releases_and_copies(self):
+        events = []
+
+        with mock.patch.object(
+            win32_input, "send_mouse_button_down",
+            side_effect=lambda button: events.append(("down", button)),
+        ), mock.patch.object(
+            win32_input, "send_mouse_button_up",
+            side_effect=lambda button: events.append(("up", button)),
+        ), mock.patch.object(
+            win32_input, "send_key_combo_tap",
+            side_effect=lambda tokens: events.append(("tap", tuple(tokens))),
+        ):
+            action = key_mapping.ButtonAction(
+                key_mapping.ActionKind.MOUSE_DRAG_SELECT
+            )
+            self.app._apply_button_action(action)
+            self.assertIsNotNone(self.app._selection_drag_owner)
+            self.app._apply_button_action(action)
+            self.assertIsNone(self.app._selection_drag_owner)
+        self.assertEqual(
+            events,
+            [("down", "left"), ("up", "left"), ("tap", ("ctrl", "c"))],
+        )
+
+    def test_mouse_drag_select_entry_blocked_by_physical_left_button(self):
+        with mock.patch.object(
+            win32_input,
+            "send_mouse_button_down",
+            side_effect=win32_input.MouseButtonInUseError("physical hold"),
+        ):
+            self.app._apply_button_action(
+                key_mapping.ButtonAction(key_mapping.ActionKind.MOUSE_DRAG_SELECT)
+            )
+        self.assertIsNone(self.app._selection_drag_owner)
+        self.assertEqual(self.app._button_mouse_holds, {})
+
+    def test_cancel_selection_drag_releases_left_button_once(self):
+        releases = []
+        with mock.patch.object(win32_input, "send_mouse_button_down"), mock.patch.object(
+            win32_input, "send_mouse_button_up",
+            side_effect=lambda button: releases.append(button),
+        ):
+            self.app._apply_button_action(
+                key_mapping.ButtonAction(key_mapping.ActionKind.MOUSE_DRAG_SELECT)
+            )
+            self.app._cancel_selection_drag()
+            self.app._cancel_selection_drag()
+        self.assertEqual(releases, ["left"])
+        self.assertIsNone(self.app._selection_drag_owner)
 
     def test_incomplete_mouse_click_is_retained_and_released_before_next_action(self):
         actions = []

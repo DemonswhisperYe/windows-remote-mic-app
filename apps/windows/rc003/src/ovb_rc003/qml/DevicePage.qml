@@ -803,6 +803,84 @@ Item {
                 }
 
                 SettingsListRow {
+                    objectName: "mouseMoveSpeedRow"
+                    enabled: !SettingsController.configurationReadOnly
+                    tokens: root.tokens
+                    titleText: qsTr("鼠标移动速度")
+                    descriptionText: qsTr("长按方向键时光标的移动快慢，四向共用")
+
+                    CompactSlider {
+                        id: mouseMoveSpeedSlider
+                        objectName: "mouseMoveSpeedSlider"
+                        tokens: root.tokens
+                        from: 3
+                        to: 24
+                        stepSize: 1
+                        value: SettingsController.mouseMoveStepPixels
+                        Accessible.name: qsTr("鼠标移动速度")
+                        onValueChanged: {
+                            const step = Math.round(value)
+                            if (step !== SettingsController.mouseMoveStepPixels)
+                                SettingsController.setMouseMoveStepPixels(step)
+                        }
+                        Connections {
+                            target: SettingsController
+                            function onMouseMoveSpeedChanged() {
+                                mouseMoveSpeedSlider.value = SettingsController.mouseMoveStepPixels
+                            }
+                        }
+                    }
+
+                    UiLabel {
+                        objectName: "mouseMoveSpeedValueLabel"
+                        tokens: root.tokens
+                        kind: bodyKind
+                        text: qsTr("约 %1 像素/秒").arg(Math.round(mouseMoveSpeedSlider.value * 66.7 / 10) * 10)
+                        Layout.preferredWidth: 92
+                        horizontalAlignment: Text.AlignRight
+                    }
+                }
+
+                SettingsListRow {
+                    objectName: "mouseTapMoveSpeedRow"
+                    enabled: !SettingsController.configurationReadOnly
+                    tokens: root.tokens
+                    titleText: qsTr("点按移动距离")
+                    descriptionText: qsTr("单击、双击鼠标上移/下移/左移/右移时每次移动的距离")
+
+                    CompactSlider {
+                        id: mouseTapMoveSpeedSlider
+                        objectName: "mouseTapMoveSpeedSlider"
+                        tokens: root.tokens
+                        from: 1
+                        to: 24
+                        stepSize: 1
+                        value: SettingsController.mouseTapMoveStepPixels
+                        Accessible.name: qsTr("点按移动距离")
+                        onValueChanged: {
+                            const step = Math.round(value)
+                            if (step !== SettingsController.mouseTapMoveStepPixels)
+                                SettingsController.setMouseTapMoveStepPixels(step)
+                        }
+                        Connections {
+                            target: SettingsController
+                            function onMouseTapMoveSpeedChanged() {
+                                mouseTapMoveSpeedSlider.value = SettingsController.mouseTapMoveStepPixels
+                            }
+                        }
+                    }
+
+                    UiLabel {
+                        objectName: "mouseTapMoveSpeedValueLabel"
+                        tokens: root.tokens
+                        kind: bodyKind
+                        text: qsTr("每次 %1 像素").arg(Math.round(mouseTapMoveSpeedSlider.value))
+                        Layout.preferredWidth: 92
+                        horizontalAlignment: Text.AlignRight
+                    }
+                }
+
+                SettingsListRow {
                     objectName: "closeBehaviorRow"
                     enabled: !SettingsController.configurationReadOnly
                     tokens: root.tokens

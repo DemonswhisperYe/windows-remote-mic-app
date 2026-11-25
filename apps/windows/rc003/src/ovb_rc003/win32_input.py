@@ -78,6 +78,7 @@ _KEYEVENTF_KEYUP = 0x0002
 _KEYEVENTF_UNICODE = 0x0004
 _KEYEVENTF_EXTENDEDKEY = 0x0001
 _KEYEVENTF_SCANCODE = 0x0008
+_MOUSEEVENTF_MOVE = 0x0001
 _MOUSEEVENTF_LEFTDOWN = 0x0002
 _MOUSEEVENTF_LEFTUP = 0x0004
 _MOUSEEVENTF_RIGHTDOWN = 0x0008
@@ -86,6 +87,8 @@ _MOUSEEVENTF_MIDDLEDOWN = 0x0020
 _MOUSEEVENTF_MIDDLEUP = 0x0040
 _MOUSEEVENTF_XDOWN = 0x0080
 _MOUSEEVENTF_XUP = 0x0100
+_MOUSEEVENTF_WHEEL = 0x0800
+_WHEEL_DELTA = 120
 _XBUTTON1 = 0x0001
 _XBUTTON2 = 0x0002
 _VK_LBUTTON = 0x01
@@ -241,6 +244,10 @@ _NUMPAD_NUMERIC_VK_CODES = frozenset(
 RawSender = Callable[[Sequence[Tuple[int, bool]]], int]
 MouseEvent = Tuple[int, int]
 MouseSender = Callable[[Sequence[MouseEvent]], int]
+# Relative pointer movement needs its own dx/dy pair; button and wheel events
+# keep the existing (flags, mouse_data) two-tuple shape.
+MouseMoveEvent = Tuple[int, int, int]
+MouseMoveSender = Callable[[Sequence[MouseMoveEvent]], int]
 MouseButtonDownQuery = Callable[[str], bool]
 PhysicalKeyDownQuery = Callable[[int], bool]
 VoiceSender = Callable[[int, bool], None]
@@ -391,6 +398,21 @@ def _build_mouse_input_array(events: Sequence[MouseEvent]):
     return array, INPUT
 
 
+def _build_mouse_move_input_array(events: Sequence[MouseMoveEvent]):
+    array = (INPUT * len(events))()
+    for index, (flags, dx, dy) in enumerate(events):
+        mouse_input = MOUSEINPUT(
+            dx=dx,
+            dy=dy,
+            mouseData=0,
+            dwFlags=flags,
+            time=0,
+            dwExtraInfo=0,
+        )
+        array[index] = INPUT(type=_INPUT_MOUSE, union=_INPUT_UNION(mi=mouse_input))
+    return array, INPUT
+
+
 def _real_send_input_batch_with_builder(events, builder) -> int:
     """Submit one input batch using the requested INPUT-array builder."""
 
@@ -522,6 +544,12 @@ def _real_send_mouse_input_batch(events: Sequence[MouseEvent]) -> int:
     """Submit ordinary mouse events in one real SendInput call."""
 
     return _real_send_input_batch_with_builder(events, _build_mouse_input_array)
+
+
+def _real_send_mouse_move_input_batch(events: Sequence[MouseMoveEvent]) -> int:
+    """Submit relative pointer-move events in one real SendInput call."""
+
+    return _real_send_input_batch_with_builder(events, _build_mouse_move_input_array)
 
 
 def _mouse_button_event(button: str, *, key_up: bool) -> MouseEvent:
@@ -1003,6 +1031,51 @@ def send_mouse_button_up(
         raise error_type(
             f"SendInput did not deliver mouse {button} up; retry attempted"
         )
+
+
+def send_mouse_move(
+    dx: int, dy: int, *, _sender: Optional[MouseMoveSender] = None
+) -> None:
+    """Move the pointer by a relative pixel offset at its current position.
+
+    Relative ``MOUSEEVENTF_MOVE`` input needs no compensating release, so an
+    undelivered move only raises; it never leaves hidden input state behind.
+    """
+
+    for value in (dx, dy):
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("mouse move offsets must be integers")
+    if dx == 0 and dy == 0:
+        raise ValueError("mouse move offsets must not both be zero")
+    sender = _sender or _real_send_mouse_move_input_batch
+    events = [(_MOUSEEVENTF_MOVE, dx, dy)]
+    try:
+        sent = sender(events)
+    except Win32InputUnavailableError:
+        raise
+    except Exception as exc:
+        raise OSError(f"mouse move delivery failed: {exc}") from exc
+    if sent < 1:
+        raise OSError("SendInput did not deliver the mouse move event")
+
+
+def send_mouse_wheel(
+    clicks: int, *, _sender: Optional[MouseSender] = None
+) -> None:
+    """Scroll vertically by an integral number of Windows wheel detents."""
+
+    if not isinstance(clicks, int) or isinstance(clicks, bool) or clicks == 0:
+        raise ValueError("mouse wheel clicks must be a non-zero integer")
+    sender = _sender or _real_send_mouse_input_batch
+    events = [(_MOUSEEVENTF_WHEEL, clicks * _WHEEL_DELTA)]
+    try:
+        sent = sender(events)
+    except Win32InputUnavailableError:
+        raise
+    except Exception as exc:
+        raise OSError(f"mouse wheel delivery failed: {exc}") from exc
+    if sent < 1:
+        raise OSError("SendInput did not deliver the mouse wheel event")
 
 
 def _best_effort_release(

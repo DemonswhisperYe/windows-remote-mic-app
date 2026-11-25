@@ -51,6 +51,44 @@ VALID_CLOSE_BEHAVIORS = frozenset(
     {CLOSE_BEHAVIOR_HIDE_TO_TRAY, CLOSE_BEHAVIOR_QUIT}
 )
 
+# Pointer movement settings from the local dual-slider build. The move-speed
+# step is applied per sustained-hold tick (~15 ms, see app.py); the tap step
+# is the distance of one single/double click pointer action.
+MOUSE_MOVE_STEP_PIXELS_DEFAULT = 8
+MOUSE_MOVE_STEP_PIXELS_MIN = 3
+MOUSE_MOVE_STEP_PIXELS_MAX = 24
+MOUSE_TAP_MOVE_STEP_PIXELS_DEFAULT = 8
+MOUSE_TAP_MOVE_STEP_PIXELS_MIN = 1
+MOUSE_TAP_MOVE_STEP_PIXELS_MAX = 24
+
+
+def _clamp_int_setting(value: object, default: int, minimum: int, maximum: int) -> int:
+    if isinstance(value, bool):
+        return default
+    try:
+        number = int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return default
+    return min(max(number, minimum), maximum)
+
+
+def clamp_mouse_move_step_pixels(value: object) -> int:
+    return _clamp_int_setting(
+        value,
+        MOUSE_MOVE_STEP_PIXELS_DEFAULT,
+        MOUSE_MOVE_STEP_PIXELS_MIN,
+        MOUSE_MOVE_STEP_PIXELS_MAX,
+    )
+
+
+def clamp_mouse_tap_move_step_pixels(value: object) -> int:
+    return _clamp_int_setting(
+        value,
+        MOUSE_TAP_MOVE_STEP_PIXELS_DEFAULT,
+        MOUSE_TAP_MOVE_STEP_PIXELS_MIN,
+        MOUSE_TAP_MOVE_STEP_PIXELS_MAX,
+    )
+
 RUNTIME_LEGACY_VOICE_MODE_KEY = "_legacy_voice_trigger_mode"
 RUNTIME_REMOVED_VOICE_BINDINGS_KEY = "_removed_voice_bindings"
 RUNTIME_REMOVED_WINDOWS_DICTATION_KEY = "_removed_windows_dictation"
@@ -193,6 +231,9 @@ def default_config() -> Dict[str, Any]:
         "launch_bridge_on_app_start": False,
         "diagnostic_trace_enabled": False,
         "close_behavior": CLOSE_BEHAVIOR_HIDE_TO_TRAY,
+        # Sustained pointer-move speed (long-press) and one-tap move distance.
+        "mouse_move_step_pixels": MOUSE_MOVE_STEP_PIXELS_DEFAULT,
+        "mouse_move_tap_step_pixels": MOUSE_TAP_MOVE_STEP_PIXELS_DEFAULT,
         # A portable build offers each exact helper binary once. The explicit
         # device-page action remains available after the automatic prompt.
         "hid_helper_setup_prompted_offer_id": "",
@@ -657,6 +698,12 @@ def _normalize_desktop_behavior(config: Dict[str, Any]) -> None:
     if close_behavior not in VALID_CLOSE_BEHAVIORS:
         close_behavior = CLOSE_BEHAVIOR_HIDE_TO_TRAY
     config["close_behavior"] = close_behavior
+    config["mouse_move_step_pixels"] = clamp_mouse_move_step_pixels(
+        config.get("mouse_move_step_pixels", MOUSE_MOVE_STEP_PIXELS_DEFAULT)
+    )
+    config["mouse_move_tap_step_pixels"] = clamp_mouse_tap_move_step_pixels(
+        config.get("mouse_move_tap_step_pixels", MOUSE_TAP_MOVE_STEP_PIXELS_DEFAULT)
+    )
     config["schema_version"] = SCHEMA_VERSION
 
 

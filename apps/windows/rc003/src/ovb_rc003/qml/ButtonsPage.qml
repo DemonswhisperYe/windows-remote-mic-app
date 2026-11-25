@@ -1084,8 +1084,8 @@ Item {
                         tokens: root.tokens
                         active: primaryGestureTitleHover.hovered
                         text: actionEditor.buttonId === "mic"
-                            ? qsTr("话筒键可选按住说话、普通动作、快捷键或 Quicker URI；滚轮点按一格，按住连滚并提速；启动应用需已安装")
-                            : qsTr("可选普通动作、快捷键或 Quicker URI；滚轮点按一格，按住连滚并提速；启动应用需已安装")
+                            ? qsTr("话筒键可选按住说话、普通动作、快捷键或 Quicker URI；鼠标移动点按一格、长按持续移动；滚轮点按一格、按住连滚；启动应用需已安装")
+                            : qsTr("可选普通动作、快捷键或 Quicker URI；鼠标移动点按一格、长按持续移动；滚轮点按一格、按住连滚；启动应用需已安装")
                     }
                 }
                 RowLayout {
@@ -1176,7 +1176,7 @@ Item {
                     CompactToolTip {
                         tokens: root.tokens
                         active: doubleGestureTitleHover.hovered
-                        text: qsTr("会等待约 0.3 秒区分单击和双击；设置双击或长按后，此键不再支持按住连发")
+                        text: qsTr("会等待约 0.3 秒区分单击和双击；鼠标移动点按一格；设置双击或长按后，此键不再支持按住连发")
                     }
                 }
                 RowLayout {
@@ -1269,7 +1269,7 @@ Item {
                     CompactToolTip {
                         tokens: root.tokens
                         active: longGestureTitleHover.hovered
-                        text: qsTr("按住约 0.55 秒触发；鼠标长按保持到松手，其它动作触发一次；设置后不再支持按住连发")
+                        text: qsTr("按住约 0.55 秒触发；鼠标长按保持按下、鼠标移动持续移动，松开停止；其它动作触发一次；设置后不再支持按住连发")
                     }
                 }
                 RowLayout {

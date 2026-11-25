@@ -2012,5 +2012,49 @@ class VolumeTests(unittest.TestCase):
         self.assertEqual(sender.calls[0], [(vk, False), (vk, True)])
 
 
+
+
+class MouseWheelAndMoveTests(unittest.TestCase):
+    def test_wheel_clicks_batch_one_detent_event_with_sign(self):
+        for clicks, delta in ((1, 120), (-1, -120), (2, 240)):
+            with self.subTest(clicks=clicks):
+                sender = RecordingSender()
+                win32_input.send_mouse_wheel(clicks, _sender=sender)
+                self.assertEqual(
+                    sender.calls,
+                    [[(win32_input._MOUSEEVENTF_WHEEL, delta)]],
+                )
+
+    def test_wheel_rejects_zero_and_non_integer_clicks(self):
+        sender = RecordingSender()
+        for clicks in (0, True, 1.5, "1"):
+            with self.subTest(clicks=clicks):
+                with self.assertRaises(ValueError):
+                    win32_input.send_mouse_wheel(clicks, _sender=sender)
+        self.assertEqual(sender.calls, [])
+
+    def test_relative_move_batches_one_move_event_with_dx_dy(self):
+        sender = RecordingSender()
+        win32_input.send_mouse_move(-8, 8, _sender=sender)
+        self.assertEqual(
+            sender.calls,
+            [[(win32_input._MOUSEEVENTF_MOVE, -8, 8)]],
+        )
+
+    def test_move_rejects_empty_or_non_integer_offsets(self):
+        sender = RecordingSender()
+        for dx, dy in ((0, 0), (True, 1), (1.5, 0), ("1", 0)):
+            with self.subTest(dx=dx, dy=dy):
+                with self.assertRaises(ValueError):
+                    win32_input.send_mouse_move(dx, dy, _sender=sender)
+        self.assertEqual(sender.calls, [])
+
+    def test_undelivered_move_and_wheel_raise_oserror(self):
+        with self.assertRaises(OSError):
+            win32_input.send_mouse_move(3, 0, _sender=RecordingSender([0]))
+        with self.assertRaises(OSError):
+            win32_input.send_mouse_wheel(1, _sender=RecordingSender([0]))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1191,6 +1191,8 @@ def _load_qt_classes() -> dict:
         bridgeReconnectAvailableChanged = Signal()
         bridgeReconnectBusyChanged = Signal()
         desktopBehaviorChanged = Signal()
+        mouseMoveSpeedChanged = Signal()
+        mouseTapMoveSpeedChanged = Signal()
         trayStateChanged = Signal()
         maintenanceExitRequested = Signal()
         windowRestoreRequested = Signal()
@@ -1409,6 +1411,20 @@ def _load_qt_classes() -> dict:
             self._close_behavior = str(
                 self._config.get(
                     "close_behavior", config.CLOSE_BEHAVIOR_HIDE_TO_TRAY
+                )
+            )
+            self._mouse_move_step_pixels = config.clamp_mouse_move_step_pixels(
+                self._config.get(
+                    "mouse_move_step_pixels",
+                    config.MOUSE_MOVE_STEP_PIXELS_DEFAULT,
+                )
+            )
+            self._mouse_tap_move_step_pixels = (
+                config.clamp_mouse_tap_move_step_pixels(
+                    self._config.get(
+                        "mouse_move_tap_step_pixels",
+                        config.MOUSE_TAP_MOVE_STEP_PIXELS_DEFAULT,
+                    )
                 )
             )
             if not self.configurationReadOnly:
@@ -6000,6 +6016,16 @@ def _load_qt_classes() -> dict:
             lambda self: ["隐藏", "完全退出"],
             constant=True,
         )
+        mouseMoveStepPixels = Property(
+            int,
+            lambda self: self._mouse_move_step_pixels,
+            notify=mouseMoveSpeedChanged,
+        )
+        mouseTapMoveStepPixels = Property(
+            int,
+            lambda self: self._mouse_tap_move_step_pixels,
+            notify=mouseTapMoveSpeedChanged,
+        )
         trayIconSource = Property(
             str,
             _tray_icon_source,
@@ -6597,6 +6623,28 @@ def _load_qt_classes() -> dict:
                 return
             self._close_behavior = value
             self.desktopBehaviorChanged.emit()
+
+        @Slot(int)
+        def setMouseMoveStepPixels(self, value: int) -> None:
+            step = config.clamp_mouse_move_step_pixels(value)
+            if step == self._mouse_move_step_pixels:
+                return
+            if not self._persist_desktop_behavior("mouse_move_step_pixels", step):
+                self.mouseMoveSpeedChanged.emit()
+                return
+            self._mouse_move_step_pixels = step
+            self.mouseMoveSpeedChanged.emit()
+
+        @Slot(int)
+        def setMouseTapMoveStepPixels(self, value: int) -> None:
+            step = config.clamp_mouse_tap_move_step_pixels(value)
+            if step == self._mouse_tap_move_step_pixels:
+                return
+            if not self._persist_desktop_behavior("mouse_move_tap_step_pixels", step):
+                self.mouseTapMoveSpeedChanged.emit()
+                return
+            self._mouse_tap_move_step_pixels = step
+            self.mouseTapMoveSpeedChanged.emit()
 
         @Slot()
         def startBridgeOnApplicationStart(self) -> None:

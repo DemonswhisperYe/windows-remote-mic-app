@@ -104,16 +104,19 @@ class DisplayRoundTripTests(unittest.TestCase):
         self.assertIn("打开 Claude", flattened)
         mouse_group = dict(settings_ui.ACTION_OPTION_GROUPS)["鼠标操作"]
         self.assertEqual(
-            mouse_group[:6],
+            mouse_group[:7],
             (
                 "元素导航开关",
-                "鼠标左键单击",
-                "鼠标右键单击",
-                "鼠标中键单击",
-                "鼠标 X1 单击",
-                "鼠标 X2 单击",
+                "鼠标上移",
+                "鼠标下移",
+                "鼠标左移",
+                "鼠标右移",
+                "滚轮向上",
+                "滚轮向下",
             ),
         )
+        self.assertIn("鼠标左键单击", mouse_group)
+        self.assertIn("鼠标 X2 单击", mouse_group)
 
     def test_old_wheel_actions_display_as_page_keys(self):
         for old_kind, label in (
@@ -1078,6 +1081,37 @@ class DescribeLogOpenResultTests(unittest.TestCase):
         )
         text = describe_log_open_result(result)
         self.assertIn("no shell association available", text)
+
+
+
+
+class PointerActionOptionTests(unittest.TestCase):
+    def test_pointer_actions_round_trip_through_display_labels(self):
+        for kind, label in (
+            (key_mapping.ActionKind.MOUSE_MOVE_UP, "鼠标上移"),
+            (key_mapping.ActionKind.MOUSE_MOVE_DOWN, "鼠标下移"),
+            (key_mapping.ActionKind.MOUSE_MOVE_LEFT, "鼠标左移"),
+            (key_mapping.ActionKind.MOUSE_MOVE_RIGHT, "鼠标右移"),
+            (key_mapping.ActionKind.MOUSE_SCROLL_UP, "滚轮向上"),
+            (key_mapping.ActionKind.MOUSE_SCROLL_DOWN, "滚轮向下"),
+            (key_mapping.ActionKind.MOUSE_DRAG_SELECT, "鼠标拖选"),
+        ):
+            with self.subTest(kind=kind):
+                action = key_mapping.ButtonAction(kind)
+                self.assertEqual(_action_to_display(action), label)
+                self.assertEqual(_display_to_action(label).kind, kind)
+
+    def test_mouse_group_exposes_move_and_scroll_options(self):
+        groups = dict(settings_ui.ACTION_OPTION_GROUPS)
+        for label in (
+            "鼠标上移", "鼠标下移", "鼠标左移", "鼠标右移",
+            "滚轮向上", "滚轮向下", "鼠标拖选",
+        ):
+            with self.subTest(label=label):
+                self.assertIn(label, groups["鼠标操作"])
+                self.assertEqual(
+                    settings_ui.ACTION_OPTION_GROUP_BY_LABEL[label], "鼠标操作"
+                )
 
 
 if __name__ == "__main__":
